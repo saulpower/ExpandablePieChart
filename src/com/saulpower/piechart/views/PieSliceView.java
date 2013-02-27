@@ -1,4 +1,6 @@
-package com.moneydesktop.finance.views.chart;
+package com.saulpower.piechart.views;
+
+import com.saulpower.piechart.extra.UiUtils;
 
 import android.content.Context;
 import android.graphics.Canvas;

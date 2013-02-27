@@ -1,4 +1,6 @@
-package com.moneydesktop.finance.views.chart;
+package com.saulpower.piechart.adapter;
+
+import com.saulpower.piechart.views.PieSliceView;
 
 import android.view.View;
 import android.view.ViewGroup;

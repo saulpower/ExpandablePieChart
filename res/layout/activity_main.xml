@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent" >
         
-    <com.moneydesktop.finance.views.chart.ExpandablePieChartView
+    <com.saulpower.piechart.views.ExpandablePieChartView
         android:id="@+id/chart"
         android:layout_width="match_parent"
         android:layout_height="match_parent"

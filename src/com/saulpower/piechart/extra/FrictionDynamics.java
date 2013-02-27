@@ -1,4 +1,4 @@
-package com.moneydesktop.finance.views.chart;
+package com.saulpower.piechart.extra;
 
 public class FrictionDynamics extends Dynamics {
 

@@ -1,4 +1,4 @@
-package com.moneydesktop.finance.views.chart;
+package com.saulpower.piechart.views;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,7 +16,10 @@ import android.view.ViewConfiguration;
 import android.widget.Adapter;
 import android.widget.AdapterView;
 
-import com.moneydesktop.finance.views.chart.PieChartView.PieChartAnchor;
+import com.saulpower.piechart.adapter.PieChartAdapter;
+import com.saulpower.piechart.extra.FrictionDynamics;
+import com.saulpower.piechart.extra.UiUtils;
+import com.saulpower.piechart.views.PieChartView.PieChartAnchor;
 
 public class ExpandablePieChartView extends AdapterView<Adapter> {
     

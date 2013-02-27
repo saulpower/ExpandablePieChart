@@ -1,4 +1,8 @@
-package com.moneydesktop.finance.views.chart;
+package com.saulpower.piechart.views;
+
+import com.saulpower.piechart.adapter.BasePieChartAdapter;
+import com.saulpower.piechart.extra.Dynamics;
+import com.saulpower.piechart.extra.UiUtils;
 
 import android.animation.ObjectAnimator;
 import android.content.Context;

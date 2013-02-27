@@ -1,5 +1,5 @@
 
-package com.moneydesktop.finance.views.chart;
+package com.saulpower.piechart.extra;
 
 import com.example.expandablepiechart.R;
 

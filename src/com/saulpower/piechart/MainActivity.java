@@ -1,4 +1,6 @@
-package com.example.expandablepiechart;
+package com.saulpower.piechart;
+
+import com.example.expandablepiechart.R;
 
 import android.os.Bundle;
 import android.app.Activity;

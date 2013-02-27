@@ -25,7 +25,7 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package com.moneydesktop.finance.views.chart;
+package com.saulpower.piechart.extra;
 
 
 /**
