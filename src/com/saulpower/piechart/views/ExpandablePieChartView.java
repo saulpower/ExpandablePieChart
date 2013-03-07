@@ -1,60 +1,192 @@
 package com.saulpower.piechart.views;
 
-import java.util.ArrayList;
-import java.util.List;
-
+import android.annotation.SuppressLint;
 import android.content.Context;
+import android.database.DataSetObserver;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.PointF;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.os.AsyncTask;
+import android.os.Parcelable;
 import android.util.AttributeSet;
-import android.util.Log;
-import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.widget.Adapter;
 import android.widget.AdapterView;
 
-import com.saulpower.piechart.adapter.PieChartAdapter;
+import com.saulpower.piechart.adapter.BaseExpandablePieChartAdapter;
+import com.saulpower.piechart.adapter.PieChartBridgeAdapter;
 import com.saulpower.piechart.extra.FrictionDynamics;
-import com.saulpower.piechart.extra.UiUtils;
+import com.saulpower.piechart.views.PieChartView.OnInfoClickListener;
+import com.saulpower.piechart.views.PieChartView.OnPieChartChangeListener;
+import com.saulpower.piechart.views.PieChartView.OnPieChartExpandListener;
+import com.saulpower.piechart.views.PieChartView.OnPieChartReadyListener;
+import com.saulpower.piechart.views.PieChartView.OnRotationStateChangeListener;
 import com.saulpower.piechart.views.PieChartView.PieChartAnchor;
 
-public class ExpandablePieChartView extends AdapterView<Adapter> {
+public class ExpandablePieChartView extends AdapterView<Adapter> implements OnInfoClickListener {
     
     public final String TAG = this.getClass().getSimpleName();
     
-    private static final int STROKE_WIDTH = 3;
-	
-	/** User is not touching the list */
-    private static final int TOUCH_STATE_RESTING = 0;
-
-    /** User is touching the list and right now it's still a "click" */
-    private static final int TOUCH_STATE_CLICK = 1;
-
-    /** Current touch state */
-    private int mTouchState = TOUCH_STATE_RESTING;
-    
-    /** Distance to drag before we intercept touch events */
-    private int mScrollThreshold;
-
-    /** X-coordinate of the down event */
-    private int mTouchStartX;
-
-    /** Y-coordinate of the down event */
-    private int mTouchStartY;
-    
     /** The center point of the chart */
     private PointF mCenter = new PointF();
+
+	private Bitmap mDrawingCache;
+	
+	BitmapDrawable mDrawableCache;
     
-    private PieChartView mBaseChart, mSubChart;
+    private PieChartView mGroupChart, mChildChart;
+    
+    private boolean mGroupReady = false;
+    
+    private boolean mChildReady = false;
+    
+    private OnPieChartReadyListener mOnPieChartReadyListener;
 	
-	private Paint mPaint;
-	private Paint mStrokePaint;
-	private CaretDrawable mCaret;
+    /** Bridge Adapter used to manage the two adapters for the two pie charts */
+	private PieChartBridgeAdapter mBridgeAdapter;
 	
-	private float mInfoRadius;
+	private AdapterDataSetObserver mDataSetObserver;
+	
+	private OnExpandablePieChartChangeListener mExpandableChartChangeListener;
+	
+	private OnExpandablePieChartInfoClickListener mExpandablePieChartInfoClickListener;
+	
+	private OnPieChartChangeListener mGroupListener = new OnPieChartChangeListener() {
+
+		@Override
+		public void onSelectionChanged(int index) {
+			
+			mBridgeAdapter.setGroupPosition(index);
+			configureInfo();
+			
+			// Propagate change listener to other listeners
+			if (mExpandableChartChangeListener != null) {
+				mExpandableChartChangeListener.onGroupChanged(index);
+			}
+		}
+	};
+	
+	private OnPieChartChangeListener mChildListener = new OnPieChartChangeListener() {
+
+		@Override
+		public void onSelectionChanged(int index) {
+			
+			configureInfo(index);
+			
+			// Propagate change listener to other listeners
+			if (mExpandableChartChangeListener != null) {
+				mExpandableChartChangeListener.onChildChanged(mBridgeAdapter.getGroupPosition(), index);
+			}		
+		}
+	};
+	
+	private PieChartView.OnItemClickListener mOnGroupChartClicked = new PieChartView.OnItemClickListener() {
+		
+		@Override
+		public void onItemClick(boolean secondTap, View parent, Drawable drawable, int position, long id) {
+			
+			if (secondTap) {
+				toggleGroup();
+				return;
+			}
+		}
+	};
+	
+	private OnPieChartExpandListener mOnPieChartExpandListener = new OnPieChartExpandListener() {
+
+		@Override
+		public void onPieChartExpanded() {
+			
+			if (mExpandableChartChangeListener != null) {
+				mExpandableChartChangeListener.onGroupExpanded(mBridgeAdapter.getGroupPosition(), mChildChart.getCurrentIndex());
+			}
+		}
+
+		@Override
+		public void onPieChartCollapsed() {
+			
+			if (mExpandableChartChangeListener != null) {
+				mExpandableChartChangeListener.onGroupCollapsed(mBridgeAdapter.getGroupPosition());
+			}
+		}
+	};
+	
+	public Bitmap getDrawingCache() {
+		return mDrawingCache;
+	}
+	
+	public void setExpandableChartChangeListener(
+			OnExpandablePieChartChangeListener mExpandableChartChangeListener) {
+		this.mExpandableChartChangeListener = mExpandableChartChangeListener;
+	}
+
+	public void setExpandablePieChartInfoClickListener(
+			OnExpandablePieChartInfoClickListener mExpandablePieChartInfoClickListener) {
+		this.mExpandablePieChartInfoClickListener = mExpandablePieChartInfoClickListener;
+	}
+
+	public void setOnPieChartReadyListener(
+			OnPieChartReadyListener mOnPieChartReadyListener) {
+		this.mOnPieChartReadyListener = mOnPieChartReadyListener;
+	}
+	
+	public void toggleGroup() {
+		
+		int state = mChildChart.toggleChart();
+		
+		switch (state) {
+			case PieChartView.CHART_SHOWING:
+	
+				configureInfo(mChildChart.getCurrentIndex());
+				
+				break;
+				
+			case PieChartView.CHART_HIDDEN:
+	
+				configureInfo();
+				
+				break;
+		}
+	}
+
+	private void configureInfo() {
+		
+		int groupPosition = mBridgeAdapter.getGroupPosition();
+		InfoDrawable info = mChildChart.getInfoDrawable();
+		PieSliceDrawable slice = mGroupChart.getSlice(groupPosition);
+		
+		mBridgeAdapter.getExpandableAdapter().configureGroupInfo(info, slice, groupPosition);
+		updateCache();
+	}
+	
+	private void configureInfo(int childPosition) {
+		
+		if (!mChildChart.isLoaded()) return;
+		
+		int groupPosition = mBridgeAdapter.getGroupPosition();
+		InfoDrawable info = mChildChart.getInfoDrawable();
+		PieSliceDrawable slice = mChildChart.getSlice(childPosition);
+		
+		mBridgeAdapter.getExpandableAdapter().configureChildInfo(info, slice, groupPosition, childPosition);
+		updateCache();
+	}
+	
+	private OnRotationStateChangeListener mGroupRotationListener = new OnRotationStateChangeListener() {
+		
+		@Override
+		public void onRotationStateChange(int state) {
+			
+			switch (state) {
+			
+			case PieChartView.TOUCH_STATE_ROTATE:
+				mChildChart.hideChart();
+				updateCache();
+				break;
+			}
+		}
+	};
 
 	public ExpandablePieChartView(Context context) {
 		this(context, null);
@@ -66,189 +198,186 @@ public class ExpandablePieChartView extends AdapterView<Adapter> {
 
 	public ExpandablePieChartView(Context context, AttributeSet attrs, int defStyle) {
 		super(context, attrs, defStyle);
-		
-		mScrollThreshold = ViewConfiguration.get(context).getScaledTouchSlop();
-		
-		mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-		mPaint.setColor(Color.WHITE);
-		
-		mStrokePaint = new Paint(mPaint);
-		mStrokePaint.setStyle(Paint.Style.STROKE);
-		mStrokePaint.setStrokeWidth(UiUtils.getDynamicPixels(context, STROKE_WIDTH));
-		mStrokePaint.setColor(Color.BLACK);
-		mStrokePaint.setAlpha(50);
-		
-//		setDrawingCacheEnabled(true);
 	}
+	
+	/**
+	 * Pause the SurfaceView thread from rendering so not
+	 * to impact UI thread performance.
+	 */
+	public void onPause() {
+		
+		if (mChildChart == null || mGroupChart == null) return;
+		
+		mGroupChart.getDrawThread().onPause();
+		mChildChart.getDrawThread().onPause();
+	}
+	
+	/**
+	 * Resume the SurfaceView thread to render
+	 * the Pie Charts.
+	 */
+	public void onResume() {
+		
+		if (mChildChart == null || mGroupChart == null) return;
 
-    @Override
-    public boolean onInterceptTouchEvent(final MotionEvent event) {
-    	
-    	if (!inCircle((int) event.getX(), (int) event.getY())) return false;
-    	
-        switch (event.getAction()) {
-        
-            case MotionEvent.ACTION_DOWN:
-                startTouch(event);
-                return true;
+		mChildChart.getDrawThread().onResume();
+		mGroupChart.getDrawThread().onResume();
+	}
+	
+	/**
+	 * Provides a check to see if the child pie chart is expanded
+	 * 
+	 * @return True if the child pie chart is expanded
+	 */
+	public boolean isExpanded() {
+		
+		if (mChildChart == null) return false;
+		
+		return !mChildChart.isChartHidden();
+	}
+	
+	/**
+	 * Update the drawing cache with the latest changes
+	 * from the Pie Chart
+	 */
+	private void updateCache() {
+		
+		// Wait for the info panel transition
+		postDelayed(new Runnable() {
+			
+			@Override
+			public void run() {
+				createCache();
+			}
+		}, 400);
+	}
+	
+	/**
+	 * Create the background drawable for when
+	 * the chart is moved.
+	 */
+	private void createCache() {
+		
+		new AsyncTask<Void, Void, Boolean>() {
+    		
+			@Override
+			protected Boolean doInBackground(Void... params) {
 
-            default:
-                endTouch(event.getX(), event.getY(), 0);
-                return false;
-        }
-    }
+				if (mDrawingCache == null) {
+					mDrawingCache = Bitmap.createBitmap(getWidth(), getHeight(), Bitmap.Config.ARGB_8888);
+				}
 
-    @Override
-    public boolean onTouchEvent(final MotionEvent event) {
-    	
-        if (!inCircle((int) event.getX(), (int) event.getY())) {
-        	return false;
-        }
-        
-        switch (event.getAction()) {
-        
-            case MotionEvent.ACTION_DOWN:
-                startTouch(event);
-                break;
+				Canvas cache = new Canvas(mDrawingCache);
+				mGroupChart.getDrawThread().drawCache(cache);
+				mChildChart.getDrawThread().drawCache(cache);
+				
+				mDrawableCache = new BitmapDrawable(getResources(), mDrawingCache);
 
-            case MotionEvent.ACTION_MOVE:
-            	
-                if (mTouchState == TOUCH_STATE_CLICK) {
-                	checkForClick(event);
-                }
-                
-                break;
+				return true;
+			}
+    		
+    		@Override
+    		protected void onPostExecute(Boolean result) {
 
-            case MotionEvent.ACTION_UP:
-            	
-            	float velocity = 0;
-            	
-                if (mTouchState == TOUCH_STATE_CLICK) {
-                	
-                	Log.i(TAG, "Clicked center");
-                }
-
-                endTouch(event.getX(), event.getY(), velocity);
-                
-                break;
-
-            default:
-                endTouch(event.getX(), event.getY(), 0);
-                break;
-        }
-        
-        return true;
-    }
-
-    /**
-     * Sets and initializes all things that need to when we start a touch
-     * gesture.
-     * 
-     * @param event The down event
-     */
-    private void startTouch(final MotionEvent event) {
-    	
-        // save the start place
-        mTouchStartX = (int) event.getX();
-        mTouchStartY = (int) event.getY();
-
-        // we don't know if it's a click or a scroll yet, but until we know
-        // assume it's a click
-        mTouchState = TOUCH_STATE_CLICK;
-    }
-
-    /**
-     * Resets and recycles all things that need to when we end a touch gesture
-     */
-    private void endTouch(final float x, final float y, final float velocity) {
-
-        // reset touch state
-        mTouchState = TOUCH_STATE_RESTING;
-    }
-
-    /**
-     * Checks if the user has moved far enough for this to not be a
-     * click.
-     * 
-     * @param event The (move) event
-     * @return true if scroll was started, false otherwise
-     */
-    private boolean checkForClick(final MotionEvent event) {
-    	
-        final int xPos = (int) event.getX();
-        final int yPos = (int) event.getY();
-        
-        if (isEnabled()
-        		&& (xPos < mTouchStartX - mScrollThreshold
-                || xPos > mTouchStartX + mScrollThreshold
-                || yPos < mTouchStartY - mScrollThreshold
-                || yPos > mTouchStartY + mScrollThreshold)) {
-            
-            mTouchState = TOUCH_STATE_RESTING;
-            
-            return true;
-        }
-        
-        return false;
-    }
+				setCachedBackground(mDrawableCache);
+				
+				if (mOnPieChartReadyListener != null) {
+					mOnPieChartReadyListener.onPieChartReady();
+				}
+    		}
+			
+		}.execute();
+	}
+	
+	@SuppressWarnings("deprecation")
+	@SuppressLint("NewApi")
+	private void setCachedBackground(Drawable drawable) {
+		
+		int sdk = android.os.Build.VERSION.SDK_INT;
+		
+		if (sdk < android.os.Build.VERSION_CODES.JELLY_BEAN) {
+		    setBackgroundDrawable(drawable);
+		} else {
+		    setBackground(drawable);
+		}
+	}
 
 	@Override
 	protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
 		super.onLayout(changed, left, top, right, bottom);
 		
+		// if we don't have an adapter, we don't need to do anything
+        if (mBridgeAdapter == null) {
+        	resetChart();
+            return;
+        }
+        
 		if (getChildCount() == 0) {
 			
 			addPieCharts();
 			
-//			mSubChart.setVisibility(View.INVISIBLE);
-
-			mInfoRadius = mBaseChart.getChartRadius() * 2 / 5;
-			
 			// Get the center coordinates of the view
 			mCenter.x = getWidth() / 2f;
 			mCenter.y = getHeight() / 2f;
-			
-			createCaret();
 		}
 	}
-    
-    private boolean inCircle(final int x, final int y) {
-    	
-        double dx = (x - mCenter.x) * (x - mCenter.x);
-        double dy = (y - mCenter.y) * (y - mCenter.y);
-
-        if ((dx + dy) < (mInfoRadius * mInfoRadius)) {
-            return true;
-        } else {
-            return false;
-        }
-    }
 	
 	private void addPieCharts() {
-
-		mBaseChart = new PieChartView(getContext());
-		mBaseChart.setOnItemClickListener(new OnItemClickListener() {
-
+		
+		mChildChart = new PieChartView(getContext(), new OnPieChartReadyListener() {
+			
 			@Override
-			public void onItemClick(AdapterView<?> parent, View view, int index, long id) {
-//				mSubChart.setVisibility(mSubChart.getVisibility() == View.VISIBLE ? View.INVISIBLE : View.VISIBLE);
+			public void onPieChartReady() {
+				
+				mChildReady = true;
+				readyCheck();
 			}
 		});
+		mChildChart.setOnInfoClickListener(this);
+		mChildChart.setOnPieChartExpandListener(mOnPieChartExpandListener);
+		mChildChart.setOnPieChartChangeListener(mChildListener);
+		mChildChart.setDynamics(new FrictionDynamics(0.95f));
+		mChildChart.setSnapToAnchor(PieChartAnchor.BOTTOM);
+		mChildChart.showInfo();
+
+		mGroupChart = new PieChartView(getContext(), new OnPieChartReadyListener() {
+			
+			@Override
+			public void onPieChartReady() {
+				
+				mGroupReady = true;
+				readyCheck();
+			}
+		});
+		mGroupChart.setDynamics(new FrictionDynamics(0.95f));
+		mGroupChart.setSnapToAnchor(PieChartAnchor.BOTTOM);
+		mGroupChart.setOnRotationStateChangeListener(mGroupRotationListener);
+		mGroupChart.setOnPieChartChangeListener(mGroupListener);
+		mGroupChart.setOnItemClickListener(mOnGroupChartClicked);
 		
-		mSubChart = new PieChartView(getContext());
+		initializeChartData();
 		
-		addDummyData(mBaseChart);
-		addDummyData(mSubChart);
+		int width = getWidth() - getPaddingLeft() - getPaddingRight();
+		int height = getHeight() - getPaddingTop() - getPaddingBottom();
 		
-		addAndMeasureChart(mBaseChart, 0, getWidth(), getHeight());
-		mBaseChart.layout(getPaddingLeft(), getPaddingTop(), getWidth() - getPaddingRight(), getHeight() - getPaddingBottom());
+		addAndMeasureChart(mGroupChart, 0, width, height);
+		int subChartSize = (int) (mGroupChart.getChartDiameter() * 7 / 10);
+		addAndMeasureChart(mChildChart, 1, subChartSize, subChartSize);
 		
-		int subChartSize = (int) (mBaseChart.getChartDiameter() * 7 / 10);
-		int left = getWidth() / 2 - subChartSize / 2;
-		int top = getHeight() / 2 - subChartSize / 2;
+		mChildChart.layout(getPaddingLeft(), getPaddingTop(), getWidth() - getPaddingRight(), getHeight() - getPaddingBottom());
+		mGroupChart.layout(getPaddingLeft(), getPaddingTop(), getWidth() - getPaddingRight(), getHeight() - getPaddingBottom());
+	}
+	
+	/**
+	 * Checks to see if the Group and Child pie charts
+	 * have been initialized
+	 */
+	private void readyCheck() {
 		
-		addAndMeasureChart(mSubChart, 1, subChartSize, subChartSize);
-		mSubChart.layout(left, top, left + subChartSize, top + subChartSize);
+		if (mGroupReady && mChildReady) {
+			
+			updateCache();
+		}
 	}
 
     /**
@@ -269,61 +398,168 @@ public class ExpandablePieChartView extends AdapterView<Adapter> {
         chart.measure(MeasureSpec.EXACTLY | width, MeasureSpec.EXACTLY | height);
     }
 	
-	private void addDummyData(PieChartView chart) {
+	private void initializeChartData() {
 		
-		List<Float> slices = new ArrayList<Float>();
-		slices.add(0.1f);
-		slices.add(0.05f);
-		slices.add(0.2f);
-		slices.add(0.15f);
-		slices.add(0.3f);
-		slices.add(0.15f);
-		slices.add(0.05f);
+		if (mGroupChart == null || mChildChart == null) return;
 		
-		PieChartAdapter adapter = new PieChartAdapter(getContext(), slices);
-
-		chart.setDynamics(new FrictionDynamics(0.95f));
-		chart.setSnapToAnchor(PieChartAnchor.BOTTOM);
-		chart.setAdapter(adapter);
+		mGroupChart.setAdapter(mBridgeAdapter.getGroupAdapter());
+		mChildChart.setAdapter(mBridgeAdapter.getChildAdapter());
 	}
-    
-    @Override
-    protected void dispatchDraw(Canvas canvas) {
-        super.dispatchDraw(canvas);
-
-        canvas.drawCircle(mCenter.x, mCenter.y, mBaseChart.getChartRadius() * 2 / 5, mStrokePaint);
-        mCaret.draw(canvas);
-        canvas.drawCircle(mCenter.x, mCenter.y, mBaseChart.getChartRadius() * 2 / 5, mPaint);
-    }
 	
-	private void createCaret() {
+	private void resetChart() {
 		
-		PointF position = new PointF(mCenter.x - mInfoRadius / 2, mCenter.y + mInfoRadius / 3);
-        mCaret = new CaretDrawable(getContext(), position, mInfoRadius, mInfoRadius);
-        mCaret.setColor(Color.WHITE);
+		removeAllViewsInLayout();
+		invalidate();
 	}
 
 	@Override
 	public Adapter getAdapter() {
-		// TODO Auto-generated method stub
-		return null;
+		throw new RuntimeException(
+				"For ExpandablePieChart, use getExpandablePieChartAdapter() instead of "
+						+ "getAdapter()");
 	}
 
 	@Override
 	public View getSelectedView() {
-		// TODO Auto-generated method stub
-		return null;
+		throw new RuntimeException("Not Supported");
 	}
 
 	@Override
 	public void setAdapter(Adapter adapter) {
-		// TODO Auto-generated method stub
+		throw new RuntimeException(
+				"For ExpandablePieChart, use setAdapter(ExpandablePieChartAdapter) instead of "
+						+ "setAdapter(Adapter)");
 		
 	}
 
 	@Override
 	public void setSelection(int position) {
-		// TODO Auto-generated method stub
 		
+		if (mGroupChart != null) {
+			mGroupChart.setSelection(position);
+		}
+	}
+	
+	public void setGroupSelection(int groupPosition) {
+		setSelection(groupPosition);
+	}
+	
+	public int getSelectedGroup() {
+		return mBridgeAdapter.getGroupPosition();
+	}
+	
+	public int getSelectedChild() {
+		
+		if (!isExpanded()) return -1;
+		
+		return mChildChart.getCurrentIndex();
+	}
+	
+	public void setChildSelection(int childPosition) {
+		
+		if (mChildChart != null) {
+			mChildChart.setSelection(childPosition);
+		}
+	}
+	
+	public BaseExpandablePieChartAdapter getPieChartAdapter() {
+		return mBridgeAdapter.getExpandableAdapter();
+	}
+
+	public void setAdapter(BaseExpandablePieChartAdapter adapter) {
+		
+		if (mBridgeAdapter != null && mBridgeAdapter.getExpandableAdapter() != null && mDataSetObserver != null) {
+			mBridgeAdapter.getExpandableAdapter().unregisterDataSetObserver(mDataSetObserver);
+		}
+		
+		resetChart();
+		
+		mBridgeAdapter = new PieChartBridgeAdapter(adapter);
+		
+		if (mBridgeAdapter.getExpandableAdapter() != null) {
+			mDataSetObserver = new AdapterDataSetObserver();
+			mBridgeAdapter.getExpandableAdapter().registerDataSetObserver(mDataSetObserver);
+		}
+		
+        removeAllViewsInLayout();
+        requestLayout();
+	}
+
+	@Override
+	public void onInfoClicked(int index) {
+		
+		if (mExpandablePieChartInfoClickListener != null) {
+			mExpandablePieChartInfoClickListener.onInfoClicked(mBridgeAdapter.getGroupPosition(), index);
+		}
+	}
+	
+	class AdapterDataSetObserver extends DataSetObserver {
+
+		private Parcelable mInstanceState = null;
+
+		@Override
+		public void onChanged() {
+			
+			initializeChartData();
+			
+			// Detect the case where a cursor that was previously invalidated
+			// has been re-populated with new data.
+			if (ExpandablePieChartView.this.getPieChartAdapter().hasStableIds() && mInstanceState != null) {
+				
+				ExpandablePieChartView.this.onRestoreInstanceState(mInstanceState);
+				mInstanceState = null;
+			}
+		}
+
+		@Override
+		public void onInvalidated() {
+
+			if (ExpandablePieChartView.this.getPieChartAdapter().hasStableIds()) {
+				
+				// Remember the current state for the case where our hosting
+				// activity is being stopped and later restarted
+				mInstanceState = ExpandablePieChartView.this.onSaveInstanceState();
+			}
+
+        	resetChart();
+
+			requestLayout();
+		}
+
+		public void clearSavedState() {
+			mInstanceState = null;
+		}
+	}
+	
+	public interface OnExpandablePieChartChangeListener {
+		
+		/**
+		 * Notify that the group chart has changed
+		 * 
+		 * @param groupPosition The currently selected groupPosition
+		 */
+		public void onGroupChanged(int groupPosition);
+		
+		/**
+		 * Notify that the child chart has changed
+		 * 
+		 * @param groupPosition The currently selected groupPosition
+		 * @param childPosition The currently selected childPosition
+		 */
+		public void onChildChanged(int groupPosition, int childPosition);
+		public void onGroupExpanded(int groupPosition, int childPosition);
+		public void onGroupCollapsed(int groupPosition);
+	}
+	
+	public interface OnExpandablePieChartInfoClickListener {
+		
+		/**
+		 * Notify the info panel has been clicked
+		 * 
+		 * @param groupPosition The currently selected groupPosition
+		 * @param childPosition The currently selected childPosition.  Will return
+		 * 			-1 if child chart is not currently showing.
+		 */
+		public void onInfoClicked(int groupPosition, int childPosition);
 	}
 }

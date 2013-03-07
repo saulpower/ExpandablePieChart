@@ -2,11 +2,11 @@ package com.saulpower.piechart.adapter;
 
 import java.util.List;
 
-import com.saulpower.piechart.extra.Constant;
-import com.saulpower.piechart.views.PieSliceView;
-
 import android.content.Context;
-import android.view.ViewGroup;
+
+import com.saulpower.piechart.extra.UiUtils;
+import com.saulpower.piechart.views.PieChartView;
+import com.saulpower.piechart.views.PieSliceDrawable;
 
 public class PieChartAdapter extends BasePieChartAdapter {
     
@@ -28,27 +28,11 @@ public class PieChartAdapter extends BasePieChartAdapter {
 	public Object getItem(int position) {
 		return mObjects.get(position);
 	}
-
-	@Override
-	public PieSliceView getSlice(int position, float offset, ViewGroup parent) {
-		
-		Float percent = (Float) getItem(position);
-		
-		position = position > 15 ? position % 16 : position;
-
-		PieSliceView sliceView = new PieSliceView(mContext, offset, percent, getColor(Constant.RANDOM_COLORS[position]));
-		
-		return sliceView;
-	}
 	
 	private void init(Context context, List<Float> objects) {
 		
 		mContext = context;
 		mObjects = objects;
-	}
-	
-	private int getColor(int colorResource) {
-		return mContext.getResources().getColor(colorResource);
 	}
 
 	@Override
@@ -56,5 +40,21 @@ public class PieChartAdapter extends BasePieChartAdapter {
 		Float percent = (Float) getItem(position);
 		
 		return percent;
+	}
+
+	@Override
+	public PieSliceDrawable getSlice(PieChartView parent, PieSliceDrawable convertDrawable, int position, float offset) {
+
+		PieSliceDrawable sliceView = convertDrawable;
+		
+		if (sliceView == null) {
+			sliceView = new PieSliceDrawable(parent, mContext);
+		}
+		
+		sliceView.setSliceColor(UiUtils.getRandomColor(mContext, position));
+		sliceView.setPercent(mObjects.get(position));
+		sliceView.setDegreeOffset(offset);
+		
+		return sliceView;
 	}
 }

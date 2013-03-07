@@ -96,6 +96,11 @@ public class UiUtils {
         
         return metrics;
     }
-    
-    
+
+	public static int getRandomColor(Context context, int position) {
+		
+		position = position > 15 ? position % 16 : position;
+		
+		return context.getResources().getColor(Constant.RANDOM_COLORS[position]);
+	}
 }

@@ -1,4 +1,4 @@
-package com.saulpower.piechart.adapter;
+package com.saulpower.piechart.views;
 
 import com.saulpower.piechart.views.PieChartView;
 import com.saulpower.piechart.views.PieSliceDrawable;

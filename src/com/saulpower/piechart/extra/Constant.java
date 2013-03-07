@@ -1,7 +1,7 @@
 
 package com.saulpower.piechart.extra;
 
-import com.example.expandablepiechart.R;
+import com.saulpower.piechart.R;
 
 public class Constant {
     
