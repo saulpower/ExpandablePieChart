@@ -25,17 +25,11 @@ public class MainActivity extends Activity {
 		List<Float> slices = new ArrayList<Float>();
 		
 		slices.add(0.25f);
-		
 		slices.add(0.05f);
-		
 		slices.add(0.1f);
-		
 		slices.add(0.05f);
-		
 		slices.add(0.2f);
-		
 		slices.add(0.3f);
-		
 		slices.add(0.05f);
 		
 		PieChartAdapter adapter = new PieChartAdapter(this, slices);
